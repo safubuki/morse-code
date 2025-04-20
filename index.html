@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>和文モールス信号 再生ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: none; margin-left: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .table-container { max-height: 180px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.375rem; min-height: 50px; }
+        thead th { position: sticky; top: 0; background-color: #f9fafb; z-index: 10; }
+        .table-placeholder td { text-align: center; color: #9ca3af; font-style: italic; padding: 1rem; }
+        .icon { display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; margin-right: 0.3em; }
+        /* Removed mt-2 from link style */
+        #downloadLinkContainer a { display: inline-block; padding: 0.5rem 1rem; background-color: #ca8a04; color: white; border-radius: 0.375rem; text-decoration: none; transition: background-color 0.2s; }
+        #downloadLinkContainer a:hover { background-color: #a16207; }
+        /* Style for temporary textarea used in fallback copy */
+        .copy-fallback-textarea { position: fixed; top: -9999px; left: -9999px; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen py-10">
+    <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-lg">
+        <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">和文モールス信号 再生ツール</h1>
+
+        <div class="mb-4">
+            <label for="japaneseInput" class="block text-sm font-medium text-gray-700 mb-2">日本語テキスト (ひらがな・カタカナ・数字・一部記号):</label>
+            <textarea id="japaneseInput" rows="4" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="ここに「ひらがな」「カタカナ」「数字」などを入力 (例: こんにちは123。)"></textarea>
+            <p class="text-xs text-gray-500 mt-1">※ひらがな、カタカナ、数字(0-9)、一部記号(、。ー゛゜()？)に対応。他は無視されます。</p>
+        </div>
+
+        <div class="mb-6 flex items-center justify-center space-x-4">
+            <span class="text-sm font-medium text-gray-700">速度 (WPM):</span>
+            <button id="decreaseSpeedButton" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-1 px-3 rounded-md">-</button>
+            <span id="speedDisplay" class="text-lg font-semibold text-gray-800 w-10 text-center">20</span>
+            <button id="increaseSpeedButton" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-1 px-3 rounded-md">+</button>
+        </div>
+
+        <div class="flex items-center justify-center mb-4 space-x-4">
+            <button id="playButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition duration-150 ease-in-out flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>再生</span>
+            </button>
+            <button id="generateLinkButton" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition duration-150 ease-in-out flex items-center" title="音声ダウンロード用リンクを生成">
+                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/link.svg" alt="Link" class="icon filter invert" /> <span>リンク生成</span>
+            </button>
+            <div id="loadingIndicator" class="loader"></div>
+        </div>
+
+        <div class="mb-4">
+            <div class="flex justify-between items-center mb-2">
+                 <label for="morseOutput" class="block text-sm font-medium text-gray-700">生成されたモールス信号:</label>
+                 <button id="copyMorseButton" class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-2 rounded-md flex items-center" title="モールス信号テキストをコピー">
+                     <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/copy.svg" alt="Copy" class="icon" /> <span>コピー</span>
+                 </button>
+            </div>
+            <div id="morseOutput" class="w-full p-3 border border-gray-200 bg-gray-50 rounded-md min-h-[60px] text-gray-600 break-words"></div>
+        </div>
+
+         <div id="statusMessage" class="text-center text-sm text-gray-600 h-5"></div>
+         <div id="downloadLinkContainer" class="text-center mb-4"></div> <div class="mb-4">
+             <div class="flex justify-between items-center mb-2">
+                 <label class="block text-sm font-medium text-gray-700">入力文字のモールス符号 (全文字):</label>
+                 <button id="copyTableButton" class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-2 rounded-md flex items-center" title="対応表の内容をテキストでコピー">
+                     <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/copy.svg" alt="Copy" class="icon" /> <span>表をコピー</span>
+                 </button>
+             </div>
+            <div class="table-container">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">文字</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">符号</th>
+                        </tr>
+                    </thead>
+                    <tbody id="morseTableBody" class="bg-white divide-y divide-gray-200">
+                        <tr id="tablePlaceholderRow" style="display: none;"> <td colspan="2" class="table-placeholder">入力欄に有効な文字がありません</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const WABUN_MORSE_MAP = { // ... (Map remains the same) ...
+             // Base Kana
+            'あ': '－－・－－', 'ア': '－－・－－', 'い': '・－', 'イ': '・－', 'う': '・・－', 'ウ': '・・－', 'え': '－・－－－', 'エ': '－・－－－', 'お': '・－・・・', 'オ': '・－・・・',
+            'か': '・－・・', 'カ': '・－・・', 'き': '－・－・・', 'キ': '－・－・・', 'く': '・・・－', 'ク': '・・・－', 'け': '－・－－', 'ケ': '－・－－', 'こ': '－－－－', 'コ': '－－－－',
+            'さ': '－・－・－', 'サ': '－・－・－', 'し': '－－・－・', 'シ': '－－・－・', 'す': '－－－・－', 'ス': '－－－・－', 'せ': '・－－－・', 'セ': '・－－－・', 'そ': '－－－・', 'ソ': '－－－・',
+            'た': '－・', 'タ': '－・', 'ち': '・・－・', 'チ': '・・－・', 'つ': '・－－・', 'ツ': '・－－・', 'て': '・－・－－', 'テ': '・－・－－', 'と': '・・－・・', 'ト': '・・－・・',
+            'な': '・－・', 'ナ': '・－・', 'に': '－・－・', 'ニ': '－・－・', 'ぬ': '・・・・', 'ヌ': '・・・・', 'ね': '－－・－', 'ネ': '－－・－', 'の': '・・－－', 'ノ': '・・－－',
+            'は': '－・・・', 'ハ': '－・・・', 'ひ': '－－・・－', 'ヒ': '－－・・－', 'ふ': '－－・・', 'フ': '－－・・', 'へ': '・', 'ヘ': '・', 'ほ': '－・・', 'ホ': '－・・',
+            'ま': '－・・－', 'マ': '－・・－', 'み': '・・－・－', 'ミ': '・・－・－', 'む': '－', 'ム': '－', 'め': '－・・・－', 'メ': '－・・・－', 'も': '－・・－・', 'モ': '－・・－・',
+            'や': '・－－', 'ヤ': '・－－', 'ゆ': '－・・－－', 'ユ': '－・・－－', 'よ': '－－', 'ヨ': '－－',
+            'ら': '・・・', 'ラ': '・・・', 'り': '－－・', 'リ': '－－・', 'る': '－・－－・', 'ル': '－・－－・', 'れ': '－－－', 'レ': '－－－', 'ろ': '・－・－', 'ロ': '・－・－',
+            'わ': '－・－', 'ワ': '－・－', 'ゐ': '・－・・－', 'ヰ': '・－・・－', 'ゑ': '・－－・・', 'ヱ': '・－－・・', 'を': '・－－－', 'ヲ': '・－－－',
+            'ん': '・－・－・', 'ン': '・－・－・',
+            // Voiced Sounds (Dakuten)
+            'が': '・－・・ ・・', 'ガ': '・－・・ ・・', 'ぎ': '－・－・・ ・・', 'ギ': '－・－・・ ・・', 'ぐ': '・・・－ ・・', 'グ': '・・・－ ・・', 'げ': '－・－－ ・・', 'ゲ': '－・－－ ・・', 'ご': '－－－－ ・・', 'ゴ': '－－－－ ・・',
+            'ざ': '－・－・－ ・・', 'ザ': '－・－・－ ・・', 'じ': '－－・－・ ・・', 'ジ': '－－・－・ ・・', 'ず': '－－－・－ ・・', 'ズ': '－－－・－ ・・', 'ぜ': '・－－－・ ・・', 'ゼ': '・－－－・ ・・', 'ぞ': '－－－・ ・・', 'ゾ': '－－－・ ・・',
+            'だ': '－・ ・・', 'ダ': '－・ ・・', 'ぢ': '・・－・ ・・', 'ヂ': '・・－・ ・・', 'づ': '・－－・ ・・', 'ヅ': '・－－・ ・・', 'で': '・－・－－ ・・', 'デ': '・－・－－ ・・', 'ど': '・・－・・ ・・', 'ド': '・・－・・ ・・',
+            'ば': '－・・・ ・・', 'バ': '－・・・ ・・', 'び': '－－・・－ ・・', 'ビ': '－－・・－ ・・', 'ぶ': '－－・・ ・・', 'ブ': '－－・・ ・・', 'べ': '・ ・・', 'ベ': '・ ・・', 'ぼ': '－・・ ・・', 'ボ': '－・・ ・・',
+            'ゔ': '・・－ ・・', 'ヴ': '・・－ ・・',
+            // Semi-voiced Sounds (Handakuten)
+            'ぱ': '－・・・ ・・－－・', 'パ': '－・・・ ・・－－・', 'ぴ': '－－・・－ ・・－－・', 'ピ': '－－・・－ ・・－－・', 'ぷ': '－－・・ ・・－－・', 'プ': '－－・・ ・・－－・', 'ぺ': '・ ・・－－・', 'ペ': '・ ・・－－・', 'ぽ': '－・・ ・・－－・', 'ポ': '－・・ ・・－－・',
+            // Numbers (Wabun)
+            '0': '-----', '０': '-----', '1': '・----', '１': '・----', '2': '・・---', '２': '・・---', '3': '・・・--', '３': '・・・--', '4': '・・・・-', '４': '・・・・-', '5': '・・・・・', '５': '・・・・・', '6': '-・・・・', '６': '-・・・・', '7': '--・・・', '７': '--・・・', '8': '---・・', '８': '---・・', '9': '----・', '９': '----・',
+            // Diacritic Marks (Standalone)
+            '゛': '・・', '゜': '・・－－・',
+            // Other Symbols
+            'ー': '・－－・－', '、': '・－・－・－', '。': '・－・－・・', '（': '－・－－・－', '）': '・－・・－・', '?': '・－・・－・', '？': '・－・・－・',
+        };
+        const FREQUENCY = 600; const FILTER_Q = 3.5; const DEFAULT_WPM = 15;
+        const MIN_WPM = 5; const MAX_WPM = 40; const WPM_STEP = 1;
+
+        // --- DOM Elements ---
+        const japaneseInput = document.getElementById('japaneseInput');
+        const playButton = document.getElementById('playButton');
+        const generateLinkButton = document.getElementById('generateLinkButton');
+        const morseOutput = document.getElementById('morseOutput');
+        const copyMorseButton = document.getElementById('copyMorseButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const statusMessage = document.getElementById('statusMessage');
+        const downloadLinkContainer = document.getElementById('downloadLinkContainer');
+        const decreaseSpeedButton = document.getElementById('decreaseSpeedButton');
+        const increaseSpeedButton = document.getElementById('increaseSpeedButton');
+        const speedDisplay = document.getElementById('speedDisplay');
+        const morseTableBody = document.getElementById('morseTableBody');
+        const copyTableButton = document.getElementById('copyTableButton');
+        const tablePlaceholderRow = document.getElementById('tablePlaceholderRow');
+
+        let synth = null; let filter = null; let isPlaying = false; let scheduledEvents = [];
+        let currentWPM = DEFAULT_WPM;
+        let currentBlobUrl = null;
+
+        // --- Functions ---
+        function calculateDotDuration(wpm) { return 1.2 / wpm; }
+        function updateSpeedDisplay() { speedDisplay.textContent = currentWPM; decreaseSpeedButton.disabled = currentWPM <= MIN_WPM; increaseSpeedButton.disabled = currentWPM >= MAX_WPM; }
+        function adjustSpeed(delta) { const newWPM = currentWPM + delta; if (newWPM >= MIN_WPM && newWPM <= MAX_WPM) { currentWPM = newWPM; updateSpeedDisplay(); if (isPlaying) { stopPlayback(); statusMessage.textContent = `速度が ${currentWPM} WPM に変更されました`; setTimeout(() => statusMessage.textContent = '', 2000); } } }
+        async function initializeAudio() { if (!synth || !filter) { await Tone.start(); console.log('AudioContext started'); if (!filter) { filter = new Tone.Filter({ type: 'bandpass', frequency: FREQUENCY, Q: FILTER_Q }).toDestination(); console.log('Filter initialized with Q =', FILTER_Q); } if (!synth) { synth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.005, decay: 0.01, sustain: 0.9, release: 0.1 } }).connect(filter); console.log('Synth initialized and connected to filter'); } } }
+        function convertToMorse(text) { let morseString = ''; for (let i = 0; i < text.length; i++) { const char = text[i]; const morseChar = WABUN_MORSE_MAP[char]; if (morseChar) { if (morseString.length > 0 && morseString.slice(-1) !== ' ') { morseString += ' '; } morseString += morseChar; } else if (char === ' ') { if (morseString.length > 0 && morseString.slice(-1) !== ' ') { morseString += '   '; } } } return morseString.trim(); }
+        async function playMorseSound(morseCode) { /* ... (no changes) ... */
+            if (isPlaying) return; if (!morseCode) { statusMessage.textContent = '再生する信号がありません。'; setTimeout(() => statusMessage.textContent = '', 3000); return; }
+            await initializeAudio(); if (!synth || !filter) { statusMessage.textContent = 'オーディオの初期化に失敗しました。'; console.error("Audio components not initialized"); setTimeout(() => statusMessage.textContent = '', 3000); return; }
+            const dotDuration = calculateDotDuration(currentWPM); const dashDuration = dotDuration * 3; const symbolGap = dotDuration; const charGap = dotDuration * 3; const wordGap = dotDuration * 7; console.log(`Playing at ${currentWPM} WPM (Dot duration: ${dotDuration.toFixed(3)}s)`);
+            isPlaying = true; playButton.disabled = true; generateLinkButton.disabled = true; decreaseSpeedButton.disabled = true; increaseSpeedButton.disabled = true; playButton.querySelector('span').textContent = '停止'; playButton.querySelector('svg').innerHTML = '<rect x="6" y="6" width="12" height="12"></rect>'; loadingIndicator.style.display = 'inline-block'; statusMessage.textContent = '再生中...'; downloadLinkContainer.innerHTML = ''; if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null;} scheduledEvents = []; let currentTime = Tone.now() + 0.1;
+            for (let i = 0; i < morseCode.length; i++) { const symbol = morseCode[i]; let duration = 0; let gap = symbolGap; if (symbol === '・') { duration = dotDuration; scheduledEvents.push(synth.triggerAttackRelease(FREQUENCY, duration, currentTime)); } else if (symbol === '－') { duration = dashDuration; scheduledEvents.push(synth.triggerAttackRelease(FREQUENCY, duration, currentTime)); } else if (symbol === ' ') { if (i + 2 < morseCode.length && morseCode[i+1] === ' ' && morseCode[i+2] === ' ') { gap = wordGap; i += 2; } else { gap = charGap; } duration = 0; } else { continue; } currentTime += duration + gap; }
+            Tone.Transport.scheduleOnce((time) => { isPlaying = false; playButton.disabled = false; generateLinkButton.disabled = morseOutput.textContent.trim() === ''; updateSpeedDisplay(); playButton.querySelector('span').textContent = '再生'; playButton.querySelector('svg').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; loadingIndicator.style.display = 'none'; statusMessage.textContent = ''; console.log("Playback finished."); }, currentTime);
+            Tone.Transport.start(Tone.now());
+         }
+        function stopPlayback() { /* ... (no changes) ... */
+             if (isPlaying) { console.log("Stopping playback..."); Tone.Transport.stop(); Tone.Transport.cancel(); if (synth && synth.envelope) { try { synth.triggerRelease(Tone.now()); } catch (e) { console.warn("Could not trigger release:", e); } } scheduledEvents = []; isPlaying = false; playButton.disabled = false; generateLinkButton.disabled = morseOutput.textContent.trim() === ''; updateSpeedDisplay(); playButton.querySelector('span').textContent = '再生'; playButton.querySelector('svg').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; loadingIndicator.style.display = 'none'; if (!statusMessage.textContent.includes('速度が')) { statusMessage.textContent = '再生停止'; setTimeout(() => statusMessage.textContent = '', 2000); } }
+        }
+        function updateInputMorseTable(inputText) { /* ... (no changes) ... */
+            if (!morseTableBody) return; morseTableBody.innerHTML = ''; let validCharsFound = false;
+            const placeholder = morseTableBody.querySelector('#tablePlaceholderRow'); if (placeholder) placeholder.style.display = 'none';
+            for (const char of inputText) { const code = WABUN_MORSE_MAP[char]; if (code && char !== ' ') { validCharsFound = true; const row = morseTableBody.insertRow(); const kanaCell = row.insertCell(); kanaCell.className = 'px-6 py-2 whitespace-nowrap text-sm font-medium text-gray-900'; kanaCell.textContent = char; const codeCell = row.insertCell(); codeCell.className = 'px-6 py-2 whitespace-nowrap text-sm text-gray-500 font-mono'; codeCell.textContent = code; } }
+            if (!validCharsFound) { if(tablePlaceholderRow) { tablePlaceholderRow.style.display = ''; if (!morseTableBody.contains(tablePlaceholderRow)) { morseTableBody.appendChild(tablePlaceholderRow); } } console.log("Morse table showing placeholder."); }
+            else { console.log("Morse table updated showing all input characters in order."); }
+            copyTableButton.disabled = !validCharsFound;
+        }
+        function audioBufferToWav(buffer) { /* ... (no changes) ... */
+            const numOfChan = buffer.numberOfChannels; const L = buffer.length * numOfChan * 2 + 44; const bufferWav = new ArrayBuffer(L); const view = new DataView(bufferWav); const channels = []; let i, sample, offset = 0, pos = 0;
+            function writeString(view, offset, string) { for (let i = 0; i < string.length; i++) { view.setUint8(offset + i, string.charCodeAt(i)); } }
+            writeString(view, pos, 'RIFF'); pos += 4; view.setUint32(pos, L - 8, true); pos += 4; writeString(view, pos, 'WAVE'); pos += 4;
+            writeString(view, pos, 'fmt '); pos += 4; view.setUint32(pos, 16, true); pos += 4; view.setUint16(pos, 1, true); pos += 2; view.setUint16(pos, numOfChan, true); pos += 2; view.setUint32(pos, buffer.sampleRate, true); pos += 4; view.setUint32(pos, buffer.sampleRate * 2 * numOfChan, true); pos += 4; view.setUint16(pos, numOfChan * 2, true); pos += 2; view.setUint16(pos, 16, true); pos += 2;
+            writeString(view, pos, 'data'); pos += 4; view.setUint32(pos, L - pos - 4, true); pos += 4;
+            for (i = 0; i < numOfChan; i++) { channels.push(buffer.getChannelData(i)); }
+            offset = pos;
+            for (i = 0; i < buffer.length; i++) { for (let ch = 0; ch < numOfChan; ch++) { sample = Math.max(-1, Math.min(1, channels[ch][i])); sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF); view.setInt16(offset, sample, true); offset += 2; } }
+            return new Blob([view], { type: 'audio/wav' });
+         }
+        function copyTextFallback(text) { /* ... (no changes) ... */
+            const textArea = document.createElement('textarea'); textArea.value = text; textArea.style.position = 'fixed'; textArea.style.top = '-9999px'; textArea.style.left = '-9999px'; textArea.style.opacity = '0'; textArea.style.pointerEvents = 'none'; textArea.className = 'copy-fallback-textarea'; document.body.appendChild(textArea); textArea.focus(); textArea.select(); textArea.setSelectionRange(0, 99999); let successful = false; try { successful = document.execCommand('copy'); console.log('Fallback copy attempt status:', successful); } catch (err) { console.error('Fallback copy attempt failed:', err); successful = false; } document.body.removeChild(textArea); return successful;
+        }
+
+        // --- Event Listeners ---
+        playButton.addEventListener('click', async () => { /* ... (no changes) ... */
+             if (isPlaying) { stopPlayback(); } else { statusMessage.textContent = ''; const inputText = japaneseInput.value; if (!inputText.trim()) { statusMessage.textContent = 'テキストを入力してください。'; setTimeout(() => statusMessage.textContent = '', 3000); return; } const morse = convertToMorse(inputText); morseOutput.textContent = morse || '（変換可能な文字がありません）'; generateLinkButton.disabled = !morse; if (morse) { try { await playMorseSound(morse); } catch (error) { console.error("Error starting playback:", error); statusMessage.textContent = '再生エラーが発生しました。'; setTimeout(() => statusMessage.textContent = '', 3000); stopPlayback(); } } }
+        });
+        decreaseSpeedButton.addEventListener('click', () => adjustSpeed(-WPM_STEP));
+        increaseSpeedButton.addEventListener('click', () => adjustSpeed(WPM_STEP));
+        japaneseInput.addEventListener('input', () => {
+            const inputText = japaneseInput.value; const morse = convertToMorse(inputText); morseOutput.textContent = morse || ''; updateInputMorseTable(inputText);
+            const hasMorse = morse.trim() !== ''; playButton.disabled = !hasMorse; generateLinkButton.disabled = !hasMorse; copyMorseButton.disabled = !hasMorse;
+            downloadLinkContainer.innerHTML = ''; if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null;}
+        });
+        copyMorseButton.addEventListener('click', async () => { /* ... (no changes) ... */
+            const textToCopy = morseOutput.textContent; if (!textToCopy) { statusMessage.textContent = 'コピーする信号がありません。'; setTimeout(() => statusMessage.textContent = '', 2000); return; } let success = false; let errorMsg = 'コピーに失敗しました。'; try { await navigator.clipboard.writeText(textToCopy); success = true; console.log('Clipboard API successful'); } catch (err) { console.warn('Clipboard API failed, trying fallback:', err); try { success = copyTextFallback(textToCopy); } catch (fallbackErr) { console.error('Fallback copy method also failed:', fallbackErr); errorMsg = 'コピー機能が利用できません。'; } } if (success) { statusMessage.textContent = 'モールス信号をコピーしました！'; const originalText = copyMorseButton.querySelector('span').textContent; copyMorseButton.querySelector('span').textContent = 'コピー完了'; setTimeout(() => { statusMessage.textContent = ''; copyMorseButton.querySelector('span').textContent = originalText; }, 1500); } else { statusMessage.textContent = errorMsg; setTimeout(() => statusMessage.textContent = '', 3000); }
+        });
+        copyTableButton.addEventListener('click', async () => { /* ... (no changes) ... */
+            const hasData = morseTableBody && morseTableBody.rows.length > 0 && !(morseTableBody.rows.length === 1 && morseTableBody.rows[0].id === 'tablePlaceholderRow'); if (!hasData) { statusMessage.textContent = 'コピーする表データがありません。'; setTimeout(() => statusMessage.textContent = '', 2000); return; } let tableText = "文字\t符号\n"; for (const row of morseTableBody.rows) { if (row.id === 'tablePlaceholderRow') continue; const charCell = row.cells[0]; const codeCell = row.cells[1]; if (charCell && codeCell) { tableText += `${charCell.textContent}\t${codeCell.textContent}\n`; } } tableText = tableText.trim(); let success = false; let errorMsg = 'コピーに失敗しました。'; try { await navigator.clipboard.writeText(tableText); success = true; console.log('Clipboard API successful for table'); } catch (err) { console.warn('Clipboard API failed for table, trying fallback:', err); try { success = copyTextFallback(tableText); } catch (fallbackErr) { console.error('Fallback copy method also failed for table:', fallbackErr); errorMsg = 'コピー機能が利用できません。'; } } if (success) { statusMessage.textContent = '対応表をコピーしました！'; const originalText = copyTableButton.querySelector('span').textContent; copyTableButton.querySelector('span').textContent = 'コピー完了'; setTimeout(() => { statusMessage.textContent = ''; copyTableButton.querySelector('span').textContent = originalText; }, 1500); } else { statusMessage.textContent = errorMsg; setTimeout(() => statusMessage.textContent = '', 3000); }
+        });
+
+        // UPDATED Link Generation Listener
+        generateLinkButton.addEventListener('click', async () => {
+            const morseCode = morseOutput.textContent.trim();
+            if (!morseCode) { statusMessage.textContent = 'リンクを生成する信号がありません。'; setTimeout(() => statusMessage.textContent = '', 2000); return; }
+            if (isPlaying) { statusMessage.textContent = '再生中はリンクを生成できません。'; setTimeout(() => statusMessage.textContent = '', 2000); return; }
+
+            // Removed "WAVデータを生成中..." message
+            statusMessage.textContent = ''; // Clear status message initially
+            loadingIndicator.style.display = 'inline-block';
+            generateLinkButton.disabled = true;
+            playButton.disabled = true;
+            downloadLinkContainer.innerHTML = '';
+            if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+            console.log("Starting WAV link generation process...");
+
+            try {
+                // --- WAV Generation Logic (same as before) ---
+                const dotDuration = calculateDotDuration(currentWPM); const dashDuration = dotDuration * 3; const symbolGap = dotDuration; const charGap = dotDuration * 3; const wordGap = dotDuration * 7;
+                let totalDuration = 0.1;
+                for (let i = 0; i < morseCode.length; i++) { const symbol = morseCode[i]; let duration = 0; let gap = symbolGap; if (symbol === '・') { duration = dotDuration; } else if (symbol === '－') { duration = dashDuration; } else if (symbol === ' ') { if (i + 2 < morseCode.length && morseCode[i+1] === ' ' && morseCode[i+2] === ' ') { gap = wordGap; i += 2; } else { gap = charGap; } duration = 0; } else { continue; } totalDuration += duration + gap; } totalDuration += 0.2;
+                console.log(`Calculated total duration: ${totalDuration}`);
+
+                console.log("Calling Tone.Offline...");
+                const buffer = await Tone.Offline(async (offlineContext) => {
+                    const offlineFilter = new Tone.Filter({ type: 'bandpass', frequency: FREQUENCY, Q: FILTER_Q }).toDestination();
+                    const offlineSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.005, decay: 0.01, sustain: 0.9, release: 0.1 } }).connect(offlineFilter);
+                    let currentTime = 0.1;
+                    for (let i = 0; i < morseCode.length; i++) { const symbol = morseCode[i]; let duration = 0; let gap = symbolGap; if (symbol === '・') { duration = dotDuration; offlineSynth.triggerAttackRelease(FREQUENCY, duration, currentTime); } else if (symbol === '－') { duration = dashDuration; offlineSynth.triggerAttackRelease(FREQUENCY, duration, currentTime); } else if (symbol === ' ') { if (i + 2 < morseCode.length && morseCode[i+1] === ' ' && morseCode[i+2] === ' ') { gap = wordGap; i += 2; } else { gap = charGap; } duration = 0; } else { continue; } currentTime += duration + gap; }
+                }, totalDuration);
+                console.log("AudioBuffer received:", buffer);
+
+                const wavBlob = audioBufferToWav(buffer);
+                console.log("WAV Blob created:", wavBlob);
+
+                currentBlobUrl = URL.createObjectURL(wavBlob);
+                console.log("Object URL created:", currentBlobUrl);
+
+                const a = document.createElement('a');
+                a.href = currentBlobUrl;
+                a.download = 'morse_audio.wav';
+                a.textContent = 'ダウンロードリンク (右クリックして保存)';
+                // Removed mt-2 from class list
+                a.className = 'inline-block py-2 px-4 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-md transition duration-150';
+                downloadLinkContainer.appendChild(a);
+                // downloadInstruction.style.display = 'block'; // Instruction element removed from HTML
+                console.log("Download link added to page.");
+
+                // statusMessage.textContent = ''; // Keep status empty
+
+            } catch (error) {
+                console.error('リンク生成エラー:', error);
+                statusMessage.textContent = 'リンクの生成に失敗しました。';
+                if (error.message) { statusMessage.textContent += ` (${error.message})`; }
+                 setTimeout(() => statusMessage.textContent = '', 5000);
+            } finally {
+                loadingIndicator.style.display = 'none';
+                 const hasMorse = morseOutput.textContent.trim() !== '';
+                 generateLinkButton.disabled = !hasMorse;
+                 playButton.disabled = !hasMorse;
+            }
+        });
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            updateSpeedDisplay(); updateInputMorseTable('');
+            const hasMorse = morseOutput.textContent.trim() !== ''; playButton.disabled = !hasMorse; generateLinkButton.disabled = !hasMorse; copyMorseButton.disabled = !hasMorse; copyTableButton.disabled = true;
+        });
+
+    </script>
+</body>
+</html>
